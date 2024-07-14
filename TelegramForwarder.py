@@ -7,6 +7,7 @@ import uvicorn
 from fastapi import Depends, FastAPI
 from starlette.applications import Starlette
 import logging
+import os
 
 app = FastAPI()
 
@@ -164,4 +165,4 @@ def run_asyncio_task(task):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0")
+    uvicorn.run(app, host=os.getenv("HOST", "0.0.0.0"), port=int(os.getenv("PORT", 5000)))

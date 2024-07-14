@@ -156,7 +156,7 @@ async def handle_stop_forward_messages():
     return {"status": "success", "message": "Messages forwarding stopped"}
 
 
-@app.get("/keep-alive")
+@app.get("/keep_alive")
 async def keep_alive():
     logger.info("---------------->Keeping Alive <----------------")
     while True:

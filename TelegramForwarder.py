@@ -164,5 +164,5 @@ async def keep_alive():
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host=os.getenv("HOST", "0.0.0.0"), port=int(os.getenv("PORT", 5000)))
+    uvicorn.run(app)
 

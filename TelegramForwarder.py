@@ -6,6 +6,7 @@ from typing import List
 import uvicorn
 from fastapi import Depends, FastAPI
 from starlette.applications import Starlette
+import logging
 
 app = FastAPI()
 
@@ -95,6 +96,9 @@ def read_credentials():
         print("Credentials file not found.")
         return None, None, None
 
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', handlers=[logging.StreamHandler()])
+logger = logging.getLogger(__name__)  # Get the logger
 
 def get_telegram_forwarder():
     api_id, api_hash, phone_number = read_credentials()
@@ -103,6 +107,7 @@ def get_telegram_forwarder():
 
 @app.on_event("startup")
 async def startup_event():
+    logger.info("--------------->>> Application Started <<<-----------------")
     global telegram_forwarder
     api_id, api_hash, phone_number = read_credentials()
     telegram_forwarder = TelegramForwarder(api_id, api_hash, phone_number)
@@ -116,15 +121,21 @@ class ForwardMessagesRequest(BaseModel):
 
 @app.get('/list_chats')
 async def handle_list_chats():
+    logger.info("---------------> Getting list of chats <-------------------")
     api_id, api_hash, phone_number = read_credentials()
     forwarder = TelegramForwarder(api_id, api_hash, phone_number)
     chats_info = await forwarder.list_chats()
     return chats_info
 
+@app.get('/')
+async def handle_list_chats():
+    logger.info("--------> Liveness Testing <-------------")
+    return 'Hi i m Active'
 
 @app.post('/start_forward_messages')
 async def handle_start_forward_messages(request: ForwardMessagesRequest):
     # Extract parameters from the request
+    logger.info("---------------> Filtering and Forwarding Started <-------------")
     source_chat_id = request.source_chat_id
     destination_channel_id = request.destination_channel_id
     keywords = request.keywords
@@ -137,6 +148,7 @@ async def handle_start_forward_messages(request: ForwardMessagesRequest):
 @app.post('/stop_forward_messages')
 async def handle_stop_forward_messages():
     # Stop forwarding messages
+    logger.info("Forwarding Stopped")
     await telegram_forwarder.stop_forwarding()
     return {"status": "success", "message": "Messages forwarding stopped"}
 

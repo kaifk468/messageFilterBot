@@ -51,6 +51,7 @@ class TelegramForwarder:
                     if keywords:
                         if message.text and any(keyword in message.text.lower() for keyword in keywords):
                             await self.client.send_message(destination_channel_id, message.text)
+                            logger.info('Message succesfully sent to :-',destination_channel_id)
                     else:
                         await self.client.send_message(destination_channel_id, message.text)
 
@@ -60,6 +61,7 @@ class TelegramForwarder:
         except asyncio.CancelledError:
             # Handle task cancellation
             self.should_forward = False
+            logger.error("Forwading service got Teminated",asyncio.CancelledError)
             print("Message forwarding task cancelled")
         finally:
             # Ensure cleanup here if necessary
@@ -162,4 +164,4 @@ def run_asyncio_task(task):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=5000)
+    uvicorn.run(app, host="0.0.0.0")

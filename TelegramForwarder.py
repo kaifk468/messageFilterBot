@@ -158,6 +158,7 @@ async def handle_stop_forward_messages():
 
 @app.get("/keep-alive")
 async def keep_alive():
+    logger.info("---------------->Keeping Alive <----------------")
     while True:
         await asyncio.sleep(240)
 

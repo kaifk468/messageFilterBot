@@ -1,5 +1,5 @@
 import asyncio
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from telethon.sync import TelegramClient
 from pydantic import BaseModel
 from typing import List
@@ -58,7 +58,7 @@ class TelegramForwarder:
 
                     last_message_id = max(last_message_id, message.id)
 
-                await asyncio.sleep(5)
+                await asyncio.sleep(15)
         except asyncio.CancelledError:
             # Handle task cancellation
             self.should_forward = False
@@ -156,13 +156,12 @@ async def handle_stop_forward_messages():
     return {"status": "success", "message": "Messages forwarding stopped"}
 
 
-def run_asyncio_task(task):
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    result = loop.run_until_complete(task)
-    loop.close()
-    return result
+@app.get("/keep-alive")
+async def keep_alive():
+    while True:
+        await asyncio.sleep(240)
 
 
 if __name__ == "__main__":
     uvicorn.run(app, host=os.getenv("HOST", "0.0.0.0"), port=int(os.getenv("PORT", 5000)))
+

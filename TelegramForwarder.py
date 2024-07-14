@@ -156,13 +156,14 @@ async def handle_stop_forward_messages():
     return {"status": "success", "message": "Messages forwarding stopped"}
 
 
-@app.get("/keep_alive")
+@app.get("/keepalive")
 async def keep_alive():
     logger.info("---------------->Keeping Alive <----------------")
     while True:
-        await asyncio.sleep(240)
+        logger.info("---------------->Still Alive <----------------")
+        await asyncio.sleep(100)
 
 
 if __name__ == "__main__":
-    uvicorn.run(app)
+    uvicorn.run(app, host=os.getenv("HOST", "0.0.0.0"), port=int(os.getenv("PORT", 5000)))
 

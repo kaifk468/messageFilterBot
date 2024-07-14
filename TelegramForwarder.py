@@ -1,6 +1,17 @@
-import time
 import asyncio
+from fastapi import FastAPI, Request
 from telethon.sync import TelegramClient
+from pydantic import BaseModel
+from typing import List
+import uvicorn
+from fastapi import Depends, FastAPI
+from starlette.applications import Starlette
+
+app = FastAPI()
+
+# Global variable for the TelegramForwarder instance
+telegram_forwarder = None
+
 
 class TelegramForwarder:
     def __init__(self, api_id, api_hash, phone_number):
@@ -8,66 +19,70 @@ class TelegramForwarder:
         self.api_hash = api_hash
         self.phone_number = phone_number
         self.client = TelegramClient('session_' + phone_number, api_id, api_hash)
+        self.forwarding_task = None
+        self.should_forward = False
 
     async def list_chats(self):
-        await self.client.connect()
+        await self.connect()
+        dialogs = await self.client.get_dialogs()
+        chats_info = [{'id': dialog.id, 'title': dialog.title} for dialog in dialogs]
+        await self.disconnect()
+        return chats_info
 
-        # Ensure you're authorized
+    async def connect(self):
+        await self.client.connect()
         if not await self.client.is_user_authorized():
             await self.client.send_code_request(self.phone_number)
             await self.client.sign_in(self.phone_number, input('Enter the code: '))
 
-        # Get a list of all the dialogs (chats)
-        dialogs = await self.client.get_dialogs()
-        chats_file = open(f"chats_of_{self.phone_number}.txt", "w", encoding="utf-8")
-        # Print information about each chat
-        for dialog in dialogs:
-            print(f"Chat ID: {dialog.id}, Title: {dialog.title}")
-            chats_file.write(f"Chat ID: {dialog.id}, Title: {dialog.title} \n")
-          
-
-        print("List of groups printed successfully!")
+    async def disconnect(self):
+        await self.client.disconnect()
 
     async def forward_messages_to_channel(self, source_chat_id, destination_channel_id, keywords):
-        await self.client.connect()
+        self.should_forward = True
+        try:
+            last_message_id = (await self.client.get_messages(source_chat_id, limit=1))[0].id
 
-        # Ensure you're authorized
+            while self.should_forward:
+                messages = await self.client.get_messages(source_chat_id, min_id=last_message_id, limit=None)
+
+                for message in reversed(messages):
+                    if keywords:
+                        if message.text and any(keyword in message.text.lower() for keyword in keywords):
+                            await self.client.send_message(destination_channel_id, message.text)
+                    else:
+                        await self.client.send_message(destination_channel_id, message.text)
+
+                    last_message_id = max(last_message_id, message.id)
+
+                await asyncio.sleep(5)
+        except asyncio.CancelledError:
+            # Handle task cancellation
+            self.should_forward = False
+            print("Message forwarding task cancelled")
+        finally:
+            # Ensure cleanup here if necessary
+            await self.client.disconnect()
+            pass
+
+    async def start_forwarding(self, source_chat_id, destination_channel_id, keywords):
+        await self.client.connect()
         if not await self.client.is_user_authorized():
             await self.client.send_code_request(self.phone_number)
             await self.client.sign_in(self.phone_number, input('Enter the code: '))
+        self.forwarding_task = asyncio.create_task(
+            self.forward_messages_to_channel(source_chat_id, destination_channel_id, keywords)
+        )
+        return 'done'
 
-        last_message_id = (await self.client.get_messages(source_chat_id, limit=1))[0].id
-
-        while True:
-            print("Checking for messages and forwarding them...")
-            # Get new messages since the last checked message
-            messages = await self.client.get_messages(source_chat_id, min_id=last_message_id, limit=None)
-
-            for message in reversed(messages):
-                # Check if the message text includes any of the keywords
-                if keywords:
-                    if message.text and any(keyword in message.text.lower() for keyword in keywords):
-                        print(f"Message contains a keyword: {message.text}")
-
-                        # Forward the message to the destination channel
-                        await self.client.send_message(destination_channel_id, message.text)
-
-                        print("Message forwarded")
-                else:
-                        # Forward the message to the destination channel
-                        await self.client.send_message(destination_channel_id, message.text)
-
-                        print("Message forwarded")
+    async def stop_forwarding(self):
+        self.should_forward = False
+        if self.forwarding_task:
+            self.forwarding_task.cancel()
+            await self.forwarding_task
 
 
-                # Update the last message ID
-                last_message_id = max(last_message_id, message.id)
-
-            # Add a delay before checking for new messages again
-            await asyncio.sleep(5)  # Adjust the delay time as needed
-
-
-# Function to read credentials from file
+# Existing read_credentials function remains unchanged
 def read_credentials():
     try:
         with open("credentials.txt", "r") as file:
@@ -80,45 +95,59 @@ def read_credentials():
         print("Credentials file not found.")
         return None, None, None
 
-# Function to write credentials to file
-def write_credentials(api_id, api_hash, phone_number):
-    with open("credentials.txt", "w") as file:
-        file.write(api_id + "\n")
-        file.write(api_hash + "\n")
-        file.write(phone_number + "\n")
 
-async def main():
-    # Attempt to read credentials from file
+def get_telegram_forwarder():
     api_id, api_hash, phone_number = read_credentials()
+    return TelegramForwarder(api_id, api_hash, phone_number)
 
-    # If credentials not found in file, prompt the user to input them
-    if api_id is None or api_hash is None or phone_number is None:
-        api_id = input("Enter your API ID: ")
-        api_hash = input("Enter your API Hash: ")
-        phone_number = input("Enter your phone number: ")
-        # Write credentials to file for future use
-        write_credentials(api_id, api_hash, phone_number)
 
+@app.on_event("startup")
+async def startup_event():
+    global telegram_forwarder
+    api_id, api_hash, phone_number = read_credentials()
+    telegram_forwarder = TelegramForwarder(api_id, api_hash, phone_number)
+
+
+class ForwardMessagesRequest(BaseModel):
+    source_chat_id: int
+    destination_channel_id: int
+    keywords: List[str]
+
+
+@app.get('/list_chats')
+async def handle_list_chats():
+    api_id, api_hash, phone_number = read_credentials()
     forwarder = TelegramForwarder(api_id, api_hash, phone_number)
-    
-    print("Choose an option:")
-    print("1. List Chats")
-    print("2. Forward Messages")
-    
-    choice = input("Enter your choice: ")
-    
-    if choice == "1":
-        await forwarder.list_chats()
-    elif choice == "2":
-        source_chat_id = int(input("Enter the source chat ID: "))
-        destination_channel_id = int(input("Enter the destination chat ID: "))
-        print("Enter keywords if you want to forward messages with specific keywords, or leave blank to forward every message!")
-        keywords = input("Put keywords (comma separated if multiple, or leave blank): ").split(",")
-        
-        await forwarder.forward_messages_to_channel(source_chat_id, destination_channel_id, keywords)
-    else:
-        print("Invalid choice")
+    chats_info = await forwarder.list_chats()
+    return chats_info
 
-# Start the event loop and run the main function
+
+@app.post('/start_forward_messages')
+async def handle_start_forward_messages(request: ForwardMessagesRequest):
+    # Extract parameters from the request
+    source_chat_id = request.source_chat_id
+    destination_channel_id = request.destination_channel_id
+    keywords = request.keywords
+
+    # Start forwarding messages
+    await telegram_forwarder.start_forwarding(source_chat_id, destination_channel_id, keywords)
+    return {"status": "success", "message": "Messages forwarding started"}
+
+
+@app.post('/stop_forward_messages')
+async def handle_stop_forward_messages():
+    # Stop forwarding messages
+    await telegram_forwarder.stop_forwarding()
+    return {"status": "success", "message": "Messages forwarding stopped"}
+
+
+def run_asyncio_task(task):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    result = loop.run_until_complete(task)
+    loop.close()
+    return result
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    uvicorn.run(app, host="0.0.0.0", port=5000)

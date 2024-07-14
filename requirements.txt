@@ -1,1 +1,5 @@
-telethon
+fastapi==0.68.1
+starlette==0.14.2
+pydantic==1.8.2
+uvicorn==0.15.0
+telethon==1.0
